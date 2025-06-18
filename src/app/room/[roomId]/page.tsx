@@ -1,6 +1,7 @@
 "use client";
 import { useParams, useRouter } from 'next/navigation';
 import { useState, useEffect, useRef } from 'react';
+import { io, Socket } from 'socket.io-client';
 import styles from './page.module.css';
 
 interface Message {
@@ -11,6 +12,11 @@ interface Message {
   type?: 'system' | 'user';
 }
 
+interface User {
+  id: string;
+  nickname: string;
+}
+
 export default function ChatRoom() {
   const params = useParams();
   const router = useRouter();
@@ -19,7 +25,8 @@ export default function ChatRoom() {
   const [newMessage, setNewMessage] = useState('');
   const [nickname, setNickname] = useState('');
   const [roomConfig, setRoomConfig] = useState<any>(null);
-  const [onlineUsers, setOnlineUsers] = useState<string[]>([]);
+  const [onlineUsers, setOnlineUsers] = useState<User[]>([]);
+  const [socket, setSocket] = useState<Socket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -36,23 +43,27 @@ export default function ChatRoom() {
       setRoomConfig(JSON.parse(savedRoomConfig));
     }
 
-    const welcomeMessage: Message = {
-      id: Date.now().toString(),
-      nickname: 'System',
-      content: `${savedNickname}님이 입장했습니다.`,
-      timestamp: new Date().toLocaleTimeString(),
-      type: 'system'
-    };
-    setMessages([welcomeMessage]);
-    setOnlineUsers([savedNickname]);
+    // Socket.IO 연결
+    const newSocket = io();
+    setSocket(newSocket);
 
-    const handleBeforeUnload = () => {
-      localStorage.removeItem('nickname');
-      localStorage.removeItem('roomConfig');
-    };
+    // 방 입장
+    newSocket.emit('join-room', { roomId, nickname: savedNickname });
 
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+    // 메시지 수신
+    newSocket.on('message', (message: Message) => {
+      setMessages(prev => [...prev, message]);
+    });
+
+    // 사용자 목록 업데이트
+    newSocket.on('users-update', (users: User[]) => {
+      setOnlineUsers(users);
+    });
+
+    // 컴포넌트 언마운트 시 소켓 해제
+    return () => {
+      newSocket.disconnect();
+    };
   }, [roomId, router]);
 
   useEffect(() => {
@@ -60,35 +71,19 @@ export default function ChatRoom() {
   }, [messages]);
 
   const handleSendMessage = () => {
-    if (!newMessage.trim()) return;
+    if (!newMessage.trim() || !socket) return;
 
-    const message: Message = {
-      id: Date.now().toString(),
-      nickname,
-      content: newMessage,
-      timestamp: new Date().toLocaleTimeString()
-    };
-
-    setMessages(prev => [...prev, message]);
+    socket.emit('send-message', { roomId, message: newMessage });
     setNewMessage('');
   };
 
   const handleLeaveRoom = () => {
-    const leaveMessage: Message = {
-      id: Date.now().toString(),
-      nickname: 'System',
-      content: `${nickname}님이 퇴장했습니다.`,
-      timestamp: new Date().toLocaleTimeString(),
-      type: 'system'
-    };
-    
-    setMessages(prev => [...prev, leaveMessage]);
-    
-    setTimeout(() => {
-      localStorage.removeItem('nickname');
-      localStorage.removeItem('roomConfig');
-      router.push('/');
-    }, 1000);
+    if (socket) {
+      socket.disconnect();
+    }
+    localStorage.removeItem('nickname');
+    localStorage.removeItem('roomConfig');
+    router.push('/');
   };
 
   const getMessageClassName = (message: Message) => {
