@@ -1,7 +1,6 @@
 "use client";
 import { useParams, useRouter } from 'next/navigation';
 import { useState, useEffect, useRef } from 'react';
-import { io, Socket } from 'socket.io-client';
 import styles from './page.module.css';
 
 interface Message {
@@ -10,11 +9,12 @@ interface Message {
   content: string;
   timestamp: string;
   type?: 'system' | 'user';
+  roomId: string;
 }
 
-interface User {
-  id: string;
-  nickname: string;
+interface RoomInfo {
+  userCount: number;
+  users: string[];
 }
 
 export default function ChatRoom() {
@@ -25,9 +25,10 @@ export default function ChatRoom() {
   const [newMessage, setNewMessage] = useState('');
   const [nickname, setNickname] = useState('');
   const [roomConfig, setRoomConfig] = useState<any>(null);
-  const [onlineUsers, setOnlineUsers] = useState<User[]>([]);
-  const [socket, setSocket] = useState<Socket | null>(null);
+  const [roomInfo, setRoomInfo] = useState<RoomInfo>({ userCount: 0, users: [] });
+  const [isJoined, setIsJoined] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const pollingRef = useRef<NodeJS.Timeout>();
 
   useEffect(() => {
     const savedNickname = localStorage.getItem('nickname');
@@ -43,26 +44,13 @@ export default function ChatRoom() {
       setRoomConfig(JSON.parse(savedRoomConfig));
     }
 
-    // Socket.IO 연결
-    const newSocket = io();
-    setSocket(newSocket);
-
     // 방 입장
-    newSocket.emit('join-room', { roomId, nickname: savedNickname });
+    joinRoom(roomId, savedNickname);
 
-    // 메시지 수신
-    newSocket.on('message', (message: Message) => {
-      setMessages(prev => [...prev, message]);
-    });
-
-    // 사용자 목록 업데이트
-    newSocket.on('users-update', (users: User[]) => {
-      setOnlineUsers(users);
-    });
-
-    // 컴포넌트 언마운트 시 소켓 해제
     return () => {
-      newSocket.disconnect();
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+      }
     };
   }, [roomId, router]);
 
@@ -70,17 +58,90 @@ export default function ChatRoom() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  const handleSendMessage = () => {
-    if (!newMessage.trim() || !socket) return;
+  const joinRoom = async (roomId: string, nickname: string) => {
+    try {
+      const response = await fetch('/api/chat/join', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ roomId, nickname }),
+      });
 
-    socket.emit('send-message', { roomId, message: newMessage });
-    setNewMessage('');
+      const data = await response.json();
+      if (data.success) {
+        setMessages(data.messages);
+        setRoomInfo({ userCount: data.users.length, users: data.users });
+        setIsJoined(true);
+        
+        // 메시지 폴링 시작
+        startPolling();
+      }
+    } catch (error) {
+      console.error('Failed to join room:', error);
+    }
+  };
+
+  const startPolling = () => {
+    pollingRef.current = setInterval(async () => {
+      try {
+        const lastMessageId = messages.length > 0 ? messages[messages.length - 1].id : '';
+        const response = await fetch(`/api/chat/messages?roomId=${roomId}&lastMessageId=${lastMessageId}`);
+        const data = await response.json();
+        
+        if (data.success && data.messages.length > 0) {
+          setMessages(prev => [...prev, ...data.messages]);
+        }
+        
+        if (data.roomInfo) {
+          setRoomInfo(data.roomInfo);
+        }
+      } catch (error) {
+        console.error('Polling error:', error);
+      }
+    }, 1000); // 1초마다 폴링
+  };
+
+  const handleSendMessage = async () => {
+    if (!newMessage.trim()) return;
+
+    try {
+      const response = await fetch('/api/chat/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          roomId,
+          nickname,
+          content: newMessage
+        }),
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        setNewMessage('');
+        // 메시지는 폴링을 통해 업데이트됨
+      }
+    } catch (error) {
+      console.error('Failed to send message:', error);
+    }
   };
 
   const handleLeaveRoom = () => {
-    if (socket) {
-      socket.disconnect();
+    if (pollingRef.current) {
+      clearInterval(pollingRef.current);
     }
+    
+    // 퇴장 API 호출 (선택사항)
+    fetch('/api/chat/leave', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ roomId, nickname }),
+    }).catch(console.error);
+
     localStorage.removeItem('nickname');
     localStorage.removeItem('roomConfig');
     router.push('/');
@@ -96,6 +157,14 @@ export default function ChatRoom() {
     return className;
   };
 
+  if (!isJoined) {
+    return (
+      <div className={styles.chatRoom}>
+        <div className={styles.loading}>방에 입장 중...</div>
+      </div>
+    );
+  }
+
   return (
     <div className={styles.chatRoom}>
       <div className={styles.chatHeader}>
@@ -104,7 +173,7 @@ export default function ChatRoom() {
           {roomConfig?.roomName && <p>{roomConfig.roomName}</p>}
         </div>
         <div className={styles.roomActions}>
-          <span className={styles.onlineCount}>온라인: {onlineUsers.length}명</span>
+          <span className={styles.onlineCount}>온라인: {roomInfo.userCount}명</span>
           <button onClick={handleLeaveRoom} className={styles.leaveButton}>나가기</button>
         </div>
       </div>
