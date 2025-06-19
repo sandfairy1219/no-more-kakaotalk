@@ -209,3 +209,31 @@ export default function ChatRoom() {
     </div>
   );
 }
+
+export async function GET(request: Request) {
+  try {
+    // 예시 데이터, 실제로는 데이터베이스나 다른 소스에서 데이터를 가져와야 합니다.
+    const data = {
+      success: true,
+      messages: [],
+      roomInfo: { userCount: 0, users: [] }
+    };
+    
+    // 올바른 JSON 응답을 반환하도록 합니다
+    return new Response(JSON.stringify(data), {
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+  } catch (error) {
+    console.error('메시지 가져오기 오류:', error);
+    
+    // 오류가 발생해도 유효한 JSON 형식의 응답을 반환합니다
+    return new Response(JSON.stringify({ error: '메시지 가져오기 실패' }), {
+      status: 500,
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+  }
+}
