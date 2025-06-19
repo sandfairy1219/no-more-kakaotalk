@@ -1,165 +1,210 @@
 "use client";
-import React, { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
+import { useState, useEffect, useRef } from 'react';
 import styles from './page.module.css';
 
-export default function HomePage() {
-  const [mode, setMode] = useState<'select' | 'create' | 'join'>('select');
-  const [roomId, setRoomId] = useState('');
-  const [roomName, setRoomName] = useState('');
-  const [maxUsers, setMaxUsers] = useState(10);
-  const [nickname, setNickname] = useState('');
-  const [showNicknameModal, setShowNicknameModal] = useState(false);
-  const [roomConfig, setRoomConfig] = useState<any>(null);
+interface Message {
+  id: string;
+  nickname: string;
+  content: string;
+  timestamp: string;
+  type?: 'system' | 'user';
+  roomId: string;
+}
+
+interface RoomInfo {
+  userCount: number;
+  users: string[];
+}
+
+export default function ChatRoom() {
+  const params = useParams();
   const router = useRouter();
+  const roomId = params.roomId as string;
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [newMessage, setNewMessage] = useState('');
+  const [nickname, setNickname] = useState('');
+  const [roomConfig, setRoomConfig] = useState<any>(null);
+  const [roomInfo, setRoomInfo] = useState<RoomInfo>({ userCount: 0, users: [] });
+  const [isJoined, setIsJoined] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const pollingRef = useRef<NodeJS.Timeout | null>(null);
 
-  const handleCreateRoom = () => {
-    const newRoomId = Math.random().toString(36).substring(2, 8).toUpperCase();
-    const config = {
-      roomId: newRoomId,
-      roomName,
-      maxUsers,
-      createdAt: new Date().toISOString()
+  useEffect(() => {
+    const savedNickname = localStorage.getItem('nickname');
+    const savedRoomConfig = localStorage.getItem('roomConfig');
+    
+    if (!savedNickname) {
+      router.push('/');
+      return;
+    }
+    
+    setNickname(savedNickname);
+    if (savedRoomConfig) {
+      setRoomConfig(JSON.parse(savedRoomConfig));
+    }
+
+    // 방 입장
+    joinRoom(roomId, savedNickname);
+
+    return () => {
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+      }
     };
-    setRoomConfig(config);
-    setShowNicknameModal(true);
-  };
+  }, [roomId, router]);
 
-  const handleJoinRoom = () => {
-    if (!roomId.trim()) {
-      alert('방 ID를 입력해주세요.');
-      return;
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  const joinRoom = async (roomId: string, nickname: string) => {
+    try {
+      const response = await fetch('/api/chat/join', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ roomId, nickname }),
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        setMessages(data.messages);
+        setRoomInfo({ userCount: data.users.length, users: data.users });
+        setIsJoined(true);
+        
+        // 메시지 폴링 시작
+        startPolling();
+      }
+    } catch (error) {
+      console.error('Failed to join room:', error);
     }
-    setRoomConfig({ roomId });
-    setShowNicknameModal(true);
   };
 
-  const handleNicknameSubmit = () => {
-    if (!nickname.trim()) {
-      alert('닉네임을 입력해주세요.');
-      return;
+  const startPolling = () => {
+    pollingRef.current = setInterval(async () => {
+      try {
+        const lastMessageId = messages.length > 0 ? messages[messages.length - 1].id : '';
+        const response = await fetch(`/api/chat/messages?roomId=${roomId}&lastMessageId=${lastMessageId}`);
+        const data = await response.json();
+        
+        if (data.success && data.messages.length > 0) {
+          setMessages(prev => [...prev, ...data.messages]);
+        }
+        
+        if (data.roomInfo) {
+          setRoomInfo(data.roomInfo);
+        }
+      } catch (error) {
+        console.error('Polling error:', error);
+      }
+    }, 1000); // 1초마다 폴링
+  };
+
+  const handleSendMessage = async () => {
+    if (!newMessage.trim()) return;
+
+    try {
+      const response = await fetch('/api/chat/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          roomId,
+          nickname,
+          content: newMessage
+        }),
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        setNewMessage('');
+        // 메시지는 폴링을 통해 업데이트됨
+      }
+    } catch (error) {
+      console.error('Failed to send message:', error);
+    }
+  };
+
+  const handleLeaveRoom = () => {
+    if (pollingRef.current) {
+      clearInterval(pollingRef.current);
     }
     
-    localStorage.setItem('nickname', nickname);
-    localStorage.setItem('roomConfig', JSON.stringify(roomConfig));
-    
-    router.push(`/room/${roomConfig.roomId}`);
+    // 퇴장 API 호출 (선택사항)
+    fetch('/api/chat/leave', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ roomId, nickname }),
+    }).catch(console.error);
+
+    localStorage.removeItem('nickname');
+    localStorage.removeItem('roomConfig');
+    router.push('/');
   };
 
-  if (showNicknameModal) {
-    return (
-      <div className={styles.container}>
-        <div className={styles.modal}>
-          <h2>닉네임 설정</h2>
-          <input
-            type="text"
-            placeholder="닉네임을 입력하세요"
-            value={nickname}
-            onChange={(e) => setNickname(e.target.value)}
-            onKeyPress={(e) => e.key === 'Enter' && handleNicknameSubmit()}
-          />
-          <div className={styles.buttonGroup}>
-            <button 
-              onClick={() => setShowNicknameModal(false)} 
-              className={`${styles.button} ${styles.secondary}`}
-            >
-              취소
-            </button>
-            <button 
-              onClick={handleNicknameSubmit} 
-              className={`${styles.button} ${styles.primary}`}
-            >
-              입장하기
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  const getMessageClassName = (message: Message) => {
+    let className = styles.message;
+    if (message.type === 'system') {
+      className += ` ${styles.systemMessage}`;
+    } else if (message.nickname === nickname) {
+      className += ` ${styles.myMessage}`;
+    }
+    return className;
+  };
 
-  if (mode === 'create') {
+  if (!isJoined) {
     return (
-      <div className={styles.container}>
-        <h1>새 채팅방 만들기</h1>
-        <div className={styles.form}>
-          <input
-            type="text"
-            placeholder="방 이름"
-            value={roomName}
-            onChange={(e) => setRoomName(e.target.value)}
-          />
-          <div className={styles.formGroup}>
-            <label>최대 인원: {maxUsers}명</label>
-            <input
-              type="range"
-              min="2"
-              max="50"
-              value={maxUsers}
-              onChange={(e) => setMaxUsers(Number(e.target.value))}
-            />
-          </div>
-          <div className={styles.buttonGroup}>
-            <button 
-              onClick={() => setMode('select')} 
-              className={`${styles.button} ${styles.secondary}`}
-            >
-              뒤로가기
-            </button>
-            <button 
-              onClick={handleCreateRoom} 
-              className={`${styles.button} ${styles.primary}`}
-            >
-              방 만들기
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (mode === 'join') {
-    return (
-      <div className={styles.container}>
-        <h1>채팅방 입장</h1>
-        <div className={styles.form}>
-          <input
-            type="text"
-            placeholder="방 ID를 입력하세요"
-            value={roomId}
-            onChange={(e) => setRoomId(e.target.value.toUpperCase())}
-            onKeyPress={(e) => e.key === 'Enter' && handleJoinRoom()}
-          />
-          <div className={styles.buttonGroup}>
-            <button 
-              onClick={() => setMode('select')} 
-              className={`${styles.button} ${styles.secondary}`}
-            >
-              뒤로가기
-            </button>
-            <button 
-              onClick={handleJoinRoom} 
-              className={`${styles.button} ${styles.primary}`}
-            >
-              입장하기
-            </button>
-          </div>
-        </div>
+      <div className={styles.chatRoom}>
+        <div className={styles.loading}>방에 입장 중...</div>
       </div>
     );
   }
 
   return (
-    <div className={styles.container}>
-      <h1>채팅 서비스</h1>
-      <div className={styles.mainButtons}>
-        <button onClick={() => setMode('create')} className={styles.mainButton}>
-          <h2>방 만들기</h2>
-          <p>새로운 채팅방을 생성합니다</p>
-        </button>
-        <button onClick={() => setMode('join')} className={styles.mainButton}>
-          <h2>방 입장하기</h2>
-          <p>기존 채팅방에 참여합니다</p>
-        </button>
+    <div className={styles.chatRoom}>
+      <div className={styles.chatHeader}>
+        <div className={styles.roomInfo}>
+          <h2>방 ID: {roomId}</h2>
+          {roomConfig?.roomName && <p>{roomConfig.roomName}</p>}
+        </div>
+        <div className={styles.roomActions}>
+          <span className={styles.onlineCount}>온라인: {roomInfo.userCount}명</span>
+          <button onClick={handleLeaveRoom} className={styles.leaveButton}>나가기</button>
+        </div>
+      </div>
+
+      <div className={styles.chatMessages}>
+        {messages.map((message) => (
+          <div key={message.id} className={getMessageClassName(message)}>
+            <div className={styles.messageHeader}>
+              <span className={styles.nickname}>{message.nickname}</span>
+              <span className={styles.timestamp}>{message.timestamp}</span>
+            </div>
+            <div className={styles.messageContent}>{message.content}</div>
+          </div>
+        ))}
+        <div ref={messagesEndRef} />
+      </div>
+
+      <div className={styles.chatInput}>
+        <input
+          type="text"
+          value={newMessage}
+          onChange={(e) => setNewMessage(e.target.value)}
+          onKeyPress={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault();
+              handleSendMessage();
+            }
+          }}
+          placeholder="메시지를 입력하세요... (Enter: 전송)"
+        />
+        <button onClick={handleSendMessage}>전송</button>
       </div>
     </div>
   );
