@@ -12,7 +12,10 @@ export async function GET(request: Request) {
     
     // roomId가 없는 경우 오류 반환
     if (!roomId) {
-      return NextResponse.json({ error: 'roomId is required' }, { status: 400 });
+      return new Response(
+        JSON.stringify({ error: 'roomId is required' }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } }
+      );
     }
     
     const messages = chatService.getMessages(roomId, lastMessageId || undefined);
@@ -23,7 +26,11 @@ export async function GET(request: Request) {
       messages: [] // 실제 데이터로 교체하세요
     };
     
-    return NextResponse.json(responseData);
+    // 실제 메시지 데이터를 가져오는 부분이 없다면 아래처럼 빈 배열 반환
+    return new Response(
+      JSON.stringify({ messages: [] }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } }
+    );
   } catch (error) {
     // 오류 로깅
     console.error('메시지 가져오기 오류:', error);
@@ -34,12 +41,7 @@ export async function GET(request: Request) {
         error: '메시지 가져오기 실패',
         message: error instanceof Error ? error.message : 'Unknown error'
       }),
-      {
-        status: 500,
-        headers: {
-          'Content-Type': 'application/json'
-        }
-      }
+      { status: 500, headers: { 'Content-Type': 'application/json' } }
     );
   }
 }
