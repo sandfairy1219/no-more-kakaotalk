@@ -25,8 +25,14 @@ export async function GET(request: NextRequest) {
       roomInfo
     });
   } catch (error) {
+    console.error('메시지 가져오기 오류:', error);
+    
     return NextResponse.json(
-      { success: false, error: 'Failed to get messages' },
+      { 
+        success: false, 
+        error: '메시지 가져오기 실패', 
+        message: typeof error === 'object' && error !== null && 'message' in error ? (error as { message?: string }).message : String(error)
+      }, 
       { status: 500 }
     );
   }
