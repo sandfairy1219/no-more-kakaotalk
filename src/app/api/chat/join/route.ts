@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 // Update the import path below if your chatService is located elsewhere
-import { chatService } from '../../../lib/chat';
+import { chatService } from '@/lib/chat';
 
 export async function POST(request: NextRequest) {
   try {
