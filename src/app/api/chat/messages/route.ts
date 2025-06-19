@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { chatService } from '@/lib/chat';
+import { useRef } from 'react';
 
 export async function GET(request: NextRequest) {
   try {
@@ -47,3 +48,5 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+
+const pollingRef = useRef<NodeJS.Timeout | null>(null);
