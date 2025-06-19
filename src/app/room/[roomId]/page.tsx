@@ -28,7 +28,7 @@ export default function ChatRoom() {
   const [roomInfo, setRoomInfo] = useState<RoomInfo>({ userCount: 0, users: [] });
   const [isJoined, setIsJoined] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const pollingRef = useRef<NodeJS.Timeout>();
+  const pollingRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     const savedNickname = localStorage.getItem('nickname');
