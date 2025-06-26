@@ -1,7 +1,5 @@
-"use client";
 import { NextRequest, NextResponse } from 'next/server';
 import { chatService } from '@/lib/chat';
-import { useRef } from 'react';
 
 export async function GET(request: Request) {
   try {
@@ -12,36 +10,32 @@ export async function GET(request: Request) {
     
     // roomId가 없는 경우 오류 반환
     if (!roomId) {
-      return new Response(
-        JSON.stringify({ error: 'roomId is required' }),
-        { status: 400, headers: { 'Content-Type': 'application/json' } }
+      return NextResponse.json(
+        { error: 'roomId is required' },
+        { status: 400 }
       );
     }
     
     const messages = chatService.getMessages(roomId, lastMessageId || undefined);
     const roomInfo = chatService.getRoomInfo(roomId);
     
-    // 응답 데이터가 undefined나 null이 아닌지 확인
-    const responseData = {
-      messages: [] // 실제 데이터로 교체하세요
-    };
-    
-    // 실제 메시지 데이터를 가져오는 부분이 없다면 아래처럼 빈 배열 반환
-    return new Response(
-      JSON.stringify({ messages: [] }),
-      { status: 200, headers: { 'Content-Type': 'application/json' } }
-    );
+    return NextResponse.json({
+      success: true,
+      messages,
+      roomInfo
+    });
   } catch (error) {
     // 오류 로깅
     console.error('메시지 가져오기 오류:', error);
     
     // 오류 응답 항상 유효한 JSON으로 반환
-    return new Response(
-      JSON.stringify({
+    return NextResponse.json(
+      {
+        success: false,
         error: '메시지 가져오기 실패',
         message: error instanceof Error ? error.message : 'Unknown error'
-      }),
-      { status: 500, headers: { 'Content-Type': 'application/json' } }
+      },
+      { status: 500 }
     );
   }
 }
@@ -64,4 +58,3 @@ export async function POST(request: NextRequest) {
   }
 }
 
-const pollingRef = useRef<NodeJS.Timeout | null>(null);

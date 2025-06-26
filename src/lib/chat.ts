@@ -69,14 +69,22 @@ export const chatService = {
 
   getMessages: (roomId: string, lastMessageId?: string) => {
     const room = rooms.get(roomId);
-    if (!room) return [];
+    if (!room) {
+      console.log('Room not found:', roomId);
+      return [];
+    }
+    
+    console.log('Room messages:', room.messages);
     
     if (!lastMessageId) {
+      console.log('Returning all messages:', room.messages);
       return room.messages;
     }
     
     const lastIndex = room.messages.findIndex(msg => msg.id === lastMessageId);
-    return room.messages.slice(lastIndex + 1);
+    const newMessages = room.messages.slice(lastIndex + 1);
+    console.log('Returning new messages after', lastMessageId, ':', newMessages);
+    return newMessages;
   },
 
   leaveRoom: (roomId: string, nickname: string) => {
@@ -108,5 +116,37 @@ export const chatService = {
       userCount: room.users.length,
       users: room.users
     } : null;
+  },
+
+  // 방이 존재하는지 확인
+  roomExists: (roomId: string) => {
+    return rooms.has(roomId);
+  },
+
+  // 새 방 생성
+  createRoom: (roomId: string, creatorNickname: string) => {
+    if (rooms.has(roomId)) {
+      return { success: false, error: 'Room already exists' };
+    }
+
+    const room: ChatRoom = {
+      id: roomId,
+      messages: [],
+      users: [],
+      lastActivity: Date.now()
+    };
+
+    rooms.set(roomId, room);
+
+    return { success: true, room };
+  },
+
+  // 모든 방 목록 가져오기 (관리용)
+  getAllRooms: () => {
+    return Array.from(rooms.entries()).map(([id, room]) => ({
+      id,
+      userCount: room.users.length,
+      lastActivity: room.lastActivity
+    }));
   }
 };
